@@ -93,7 +93,7 @@ if st.button("🚀 예측 실행", type="primary", use_container_width=True):
 
         if not predicted.empty:
             display = predicted[['ID', 'probability']].copy()
-            display.columns = ['ID', f'p(≥{CUTOFFs[target]:,.2f})']
+            display.columns = ['ID', 'Probability']
             st.dataframe(
                 display.style.format({display.columns[1]: '{:.4f}'}),
                 use_container_width=True,
@@ -101,11 +101,12 @@ if st.button("🚀 예측 실행", type="primary", use_container_width=True):
             )
 
             # 다운로드
-            csv_data = display.to_csv(index=False).encode('utf-8')
+            csv_str = display.to_csv(index=False)
+            csv_data = ("\ufeff" + csv_str).encode("utf-8")
             st.download_button(
                 label="📥 결과 CSV 다운로드",
-                data=csv_data,
-                file_name="prediction_result.csv",
+                data=csv_data,                
+                file_name=f"result_{target}.csv",
                 mime="text/csv",
             )
 
