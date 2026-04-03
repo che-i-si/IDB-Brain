@@ -1,6 +1,9 @@
 import streamlit as st
 import pandas as pd
-from ml.inference import predict, validate_data, AVAILABLE_TARGETs, CUTOFFs
+from ml.inference import (
+    predict, validate_required_columns, validate_flow_rate,
+    validate_dtype, detect_range_warnings, AVAILABLE_TARGETs, CUTOFFs,
+)
 
 st.set_page_config(
     page_title="바이오공정 생균 예측",
@@ -11,8 +14,7 @@ st.set_page_config(
 # ── Header ────────────────────────────────────────────────
 st.image("assets/logo_v1.png", width=200)
 st.title("바이오공정 생균 예측 시스템")
-
-st.markdown("공정 데이터를 업로드하면 XGBoost 모델이 기준 충족 확률을 예측합니다.")
+st.markdown("공정 데이터를 업로드하면 XGBoost 모델이 생균 감쇠 확률을 예측합니다.")
 
 st.divider()
 
@@ -60,22 +62,42 @@ col2.metric("컬럼 수", f"{len(df.columns):,}개")
 with st.expander("원본 데이터 미리보기", expanded=False):
     st.dataframe(df.head(10), use_container_width=True)
 
-# ── Validate ──────────────────────────────────────────────
-validation_errors = validate_data(df)
+# ── Validate (차단 검증) ──────────────────────────────────
+st.divider()
 
-if validation_errors:
-    st.divider()
-    st.subheader("🚫 데이터 검증 실패")
-    st.error(f"총 {len(validation_errors)}건의 오류가 발견되어 예측을 실행할 수 없습니다. 데이터를 수정 후 다시 업로드하세요.")
+# 1) 필수 컬럼 검증
+try:
+    validate_required_columns(df)
+except ValueError as e:
+    st.error(f"🚫 {e}")
+    st.stop()
 
-    error_df = pd.DataFrame(validation_errors)
+# 2) 유량 컬럼 검증
+try:
+    validate_flow_rate(df)
+except ValueError as e:
+    st.error(f"🚫 {e}")
+    st.stop()
+
+# 3) 타입 오류 검증 (숫자가 아닌 값)
+dtype_errors = validate_dtype(df)
+if dtype_errors:
+    st.subheader("🚫 데이터 타입 오류")
+    st.error(f"총 {len(dtype_errors)}건의 타입 오류가 발견되어 예측을 실행할 수 없습니다. 숫자가 아닌 값을 수정 후 다시 업로드하세요.")
+    error_df = pd.DataFrame(dtype_errors)
     error_df.columns = ['오류 유형', '행', '컬럼', '값', '사유']
     st.dataframe(error_df, use_container_width=True, hide_index=True)
     st.stop()
 
-# ── Predict ───────────────────────────────────────────────
-st.divider()
+# 4) 범위 초과 경고 (차단 안 함, NaN 처리 안내)
+range_warnings = detect_range_warnings(df)
+if range_warnings:
+    with st.expander(f"⚠️ 범위 초과 값 {len(range_warnings)}건 (NaN 처리 후 추론 진행)", expanded=False):
+        warn_df = pd.DataFrame(range_warnings)
+        warn_df.columns = ['유형', '행', '컬럼', '값', '처리']
+        st.dataframe(warn_df, use_container_width=True, hide_index=True)
 
+# ── Predict ───────────────────────────────────────────────
 if st.button("🚀 예측 실행", type="primary", use_container_width=True):
     try:
         with st.spinner("전처리 및 모델 추론 중..."):
@@ -105,7 +127,7 @@ if st.button("🚀 예측 실행", type="primary", use_container_width=True):
             csv_data = ("\ufeff" + csv_str).encode("utf-8")
             st.download_button(
                 label="📥 결과 CSV 다운로드",
-                data=csv_data,                
+                data=csv_data,
                 file_name=f"result_{target}.csv",
                 mime="text/csv",
             )

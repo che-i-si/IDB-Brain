@@ -61,17 +61,47 @@ REALTIME_VARs = ['배양압력', '펌프', '백프레셔', '유량']
 PH_COLUMNs = ['2차_종료PH', '중간_종료PH', '본배양PH', '본_시작PH', '본_종료PH']
 
 
-# ── Validation ────────────────────────────────────────────
-def validate_data(df: pd.DataFrame) -> list:
-    """
-    업로드 데이터 검증. 오류 목록 반환 (빈 리스트면 통과).
-    - 수치형이 아닌 값 검출
-    - pH 컬럼: 0~14 범위 초과
-    - 나머지 수치 컬럼: 음수 검출
-    """
-    errors = []
+# ── Validation (차단용) ───────────────────────────────────
+def validate_required_columns(df: pd.DataFrame):
+    """필수 컬럼 존재 여부 검증. 누락 시 ValueError 발생."""
+    required = set(FeatureTagMap.keys()) | {"ID"}
+    realtime_ok = False
+    for rv in REALTIME_VARs:
+        if any(col.startswith(rv) for col in df.columns):
+            realtime_ok = True
+            break
+    missing = [col for col in required if col not in df.columns]
+    if realtime_ok:
+        missing = [col for col in missing if col.split('_')[0] not in REALTIME_VARs]
+    if missing:
+        raise ValueError(
+            f"필수 컬럼 누락: \n\t{', '.join(missing)}\n\n"
+            f"※ 최소한 Feature + ID 컬럼이 필요합니다."
+        )
+    if not realtime_ok:
+        raise ValueError(
+            f"실시간 변수({REALTIME_VARs}) 중 최소 1개 이상 필요합니다."
+        )
 
-    # feature 컬럼만 검사 대상
+
+def validate_flow_rate(df: pd.DataFrame):
+    """유량 1~4차 컬럼 값이 전부 존재하지 않으면 ValueError 발생."""
+    flow_cols = [col for col in df.columns if re.match(r'^유량_\d차$', col)]
+    if not flow_cols:
+        raise ValueError(
+            "유량 컬럼(유량_1차 ~ 유량_4차)이 존재하지 않습니다.\n"
+            "유량 데이터가 포함된 파일을 업로드하세요."
+        )
+    if df[flow_cols].isna().all().all():
+        raise ValueError(
+            "유량 컬럼(유량_1차 ~ 유량_4차)의 값이 전부 비어있습니다.\n"
+            "유량 데이터가 하나 이상 존재해야 합니다."
+        )
+
+
+def validate_dtype(df: pd.DataFrame) -> list:
+    """feature 컬럼에서 수치형이 아닌 값 검출. 타입 오류만 차단."""
+    errors = []
     feature_cols = set(FeatureTagMap.keys())
     realtime_cols = set()
     for var in REALTIME_VARs:
@@ -80,10 +110,6 @@ def validate_data(df: pd.DataFrame) -> list:
                 realtime_cols.add(col)
     check_cols = [c for c in df.columns if c in feature_cols or c in realtime_cols]
 
-    if not check_cols:
-        return errors
-
-    # 1) 수치형 변환 불가 검사
     for col in check_cols:
         for idx, val in df[col].items():
             if pd.isna(val):
@@ -98,41 +124,49 @@ def validate_data(df: pd.DataFrame) -> list:
                     'value': str(val),
                     'reason': '숫자가 아닌 값',
                 })
+    return errors
 
-    # 타입 오류가 있으면 범위 검사는 스킵
-    if errors:
-        return errors
 
-    # 수치 변환
+def detect_range_warnings(df: pd.DataFrame) -> list:
+    """범위 초과 값 감지 (경고용, 차단 안 함). 해당 값은 전처리에서 NaN 처리됨."""
+    warnings = []
+    feature_cols = set(FeatureTagMap.keys())
+    realtime_cols = set()
+    for var in REALTIME_VARs:
+        for col in df.columns:
+            if re.match(rf"^{var}_\d차$", col):
+                realtime_cols.add(col)
+    check_cols = [c for c in df.columns if c in feature_cols or c in realtime_cols]
+
     numeric_df = df[check_cols].apply(pd.to_numeric, errors='coerce')
 
-    # 2) pH 범위 검사 (0~14)
+    # pH 범위 (0~14)
     ph_cols = [c for c in PH_COLUMNs if c in numeric_df.columns]
     for col in ph_cols:
         mask = numeric_df[col].notna() & ((numeric_df[col] < 0) | (numeric_df[col] > 14))
         for idx in mask[mask].index:
-            errors.append({
+            warnings.append({
                 'type': '범위 초과',
                 'row': idx + 1 if isinstance(idx, int) else idx,
                 'column': col,
                 'value': str(df.at[idx, col]),
-                'reason': 'pH는 0~14 범위여야 합니다',
+                'reason': 'pH 0~14 → NaN 처리됨',
             })
 
-    # 3) 나머지 컬럼 음수 검사
+    # 음수 검사
     non_ph_cols = [c for c in check_cols if c not in ph_cols]
     for col in non_ph_cols:
         mask = numeric_df[col].notna() & (numeric_df[col] < 0)
         for idx in mask[mask].index:
-            errors.append({
+            warnings.append({
                 'type': '범위 초과',
                 'row': idx + 1 if isinstance(idx, int) else idx,
                 'column': col,
                 'value': str(df.at[idx, col]),
-                'reason': '음수 값은 허용되지 않습니다',
+                'reason': '음수 값 → NaN 처리됨',
             })
 
-    return errors
+    return warnings
 
 
 # ── Processing Functions ──────────────────────────────────
@@ -166,13 +200,17 @@ def process_dtypes(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def process_valid_range(df: pd.DataFrame) -> pd.DataFrame:
+    # pH: 0~14 벗어나면 NaN
     cols = [col for col in df.columns if col.endswith('PH')]
     df[cols] = df[cols].where((df[cols] >= 0) & (df[cols] <= 14))
-    cols = ['n_discharge']
-    if all(c in df.columns for c in cols):
-        tmp = df[cols].apply(pd.to_numeric, errors='coerce')
-        df[cols] = df[cols].where(tmp.notna() & (tmp % 1 == 0))
-        df[cols] = df[cols].where((df[cols] >= 0))
+    # 모든 수치 컬럼: 음수면 NaN
+    numeric_cols = df.select_dtypes(include=[np.number]).columns
+    for col in numeric_cols:
+        df[col] = df[col].where(df[col] >= 0)
+    # n_discharge: 정수만
+    if 'n_discharge' in df.columns:
+        tmp = df[['n_discharge']].apply(pd.to_numeric, errors='coerce')
+        df[['n_discharge']] = df[['n_discharge']].where(tmp.notna() & (tmp % 1 == 0))
     return df
 
 
