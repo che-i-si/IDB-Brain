@@ -12,7 +12,7 @@ st.set_page_config(
 st.image("assets/logo_v1.png", width=200)
 st.title("바이오공정 생균 예측 시스템")
 
-st.markdown("공정 데이터를 업로드하면 XGBoost 모델이 생균 감쇠 확률을 예측합니다.")
+st.markdown("공정 데이터를 업로드하면 XGBoost 모델이 기준 충족 확률을 예측합니다.")
 
 st.divider()
 
