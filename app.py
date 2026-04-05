@@ -14,24 +14,24 @@ st.set_page_config(
 # ── Header ────────────────────────────────────────────────
 st.image("assets/logo_v1.png", width=200)
 st.title("바이오공정 생균 예측 시스템")
-st.markdown("공정 데이터를 업로드하면 XGBoost 모델이 생균 감쇠 확률을 예측합니다.")
+st.markdown("공정 데이터를 업로드하면 XGBoost 모델이 기준 충족 확률을 예측합니다.")
 
 st.divider()
 
 # ── Sidebar: 설정 ─────────────────────────────────────────
 with st.sidebar:
-    st.header("⚙️ 설정")
+    st.header("설정")
 
     target = st.selectbox(
         "예측 대상",
         options=list(AVAILABLE_TARGETs.keys()),
         format_func=lambda x: f"{x} — {AVAILABLE_TARGETs[x]}",
     )
-    st.caption(f"Cutoff: **{CUTOFFs[target]:,.2f}**")
+    st.caption(f"📍 Cutoff: **{CUTOFFs[target]:,.2f}**")
 
     st.divider()
-    st.markdown("**필수 조건**")
-    st.markdown("- `ID` 컬럼 포함\n- 한글 컬럼명 사용\n- CSV 또는 Excel 형식")
+    st.markdown("**데이터 주의 사항**")
+    st.markdown("- `ID` 열 포함\n- 필수 변수를 정확한 명칭으로 포함\n- CSV 또는 Excel 형식\n- 더 자세한 내용은 메뉴얼 참고")
 
 # ── File Upload ───────────────────────────────────────────
 uploaded = st.file_uploader(
@@ -53,8 +53,9 @@ try:
 except Exception as e:
     st.error(f"파일 읽기 실패: {e}")
     st.stop()
-
-st.subheader("📋 업로드된 데이터")
+    
+st.divider()
+st.subheader("☑️ 업로드된 데이터")
 col1, col2 = st.columns(2)
 col1.metric("샘플 수", f"{len(df):,}개")
 col2.metric("컬럼 수", f"{len(df.columns):,}개")
@@ -134,7 +135,7 @@ if st.button("🚀 예측 실행", type="primary", use_container_width=True):
 
         if not excluded.empty:
             with st.expander(f"⚠️ 제외된 샘플 ({len(excluded)}개)", expanded=False):
-                st.caption("결측률이 높거나 필수 변수가 누락되어 예측에서 제외된 샘플입니다.")
+                st.caption("결측률이 높 예측에서 제외된 샘플입니다.")
                 st.dataframe(excluded[['ID']], use_container_width=True, hide_index=True)
 
     except ValueError as e:
