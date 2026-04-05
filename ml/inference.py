@@ -89,12 +89,12 @@ def validate_flow_rate(df: pd.DataFrame):
     flow_cols = [col for col in df.columns if re.match(r'^유량_\d차$', col)]
     if not flow_cols:
         raise ValueError(
-            "유량 컬럼(유량_1차 ~ 유량_4차)이 존재하지 않습니다.\n"
+            "유량 컬럼(유량_n차)이 존재하지 않습니다.\n"
             "유량 데이터가 포함된 파일을 업로드하세요."
         )
     if df[flow_cols].isna().all().all():
         raise ValueError(
-            "유량 컬럼(유량_1차 ~ 유량_4차)의 값이 전부 비어있습니다.\n"
+            "유량 컬럼(유량_n차)의 값이 전부 비어있습니다.\n"
             "유량 데이터가 하나 이상 존재해야 합니다."
         )
 
@@ -282,7 +282,7 @@ def data_processing(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
     df = process_valid_range(df)
     df = process_realtime_variable(df)
     df = df.rename(columns=FeatureTagMap, errors='raise')
-    df, dropped = process_drop_sparse_rows(df, cutoff=0.225, return_drops=True)
+    df, dropped = process_drop_sparse_rows(df, cutoff=0.25, return_drops=True)
     df = process_null_imputation(df)
 
     remaining_nulls = df.isna().sum().sum()
