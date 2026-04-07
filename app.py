@@ -115,6 +115,7 @@ if st.button("🚀 예측 실행", type="primary", use_container_width=True):
         c3.metric("제외됨 (결측)", f"{len(excluded)}개")
 
         if not predicted.empty:
+            display = predicted[['ID', 'probability']].copy()
             display['label'] = display['probability'].apply(lambda x: '출하 승인 대상' if x >= 0.80 else \
                                                                         '조기 관리 대상' if x >= 0.60 else '유통기한 조정 대상' if x >= 0.50 else \
                                                                         '폐기 검토 대상')
