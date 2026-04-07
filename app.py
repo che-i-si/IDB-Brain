@@ -159,27 +159,14 @@ if st.button("🚀 예측 실행", type="primary", use_container_width=True):
             )
 
             # 다운로드 + PDF 출력 버튼
-            dl_col, pdf_col = st.columns([3, 1])
-            with dl_col:
-                csv_data = ("\ufeff" + display.to_csv(index=False)).encode("utf-8")
-                st.download_button(
-                    label="📥 결과 CSV 다운로드",
-                    data=csv_data,
-                    file_name=f"result_{target}.csv",
-                    mime="text/csv",
-                    use_container_width=True,
-                )
-            with pdf_col:
-                # 브라우저 인쇄 다이얼로그 호출 → PDF로 저장
-                st.markdown(
-                    """<button onclick="window.print()"
-                        style="width:100%; padding:0.45rem 1rem; border-radius:6px;
-                               border:1px solid #ccc; background:#f8f8f8;
-                               font-size:0.9rem; cursor:pointer;">
-                        🖨️ PDF 출력
-                    </button>""",
-                    unsafe_allow_html=True,
-                )
+            csv_data = ("\ufeff" + display.to_csv(index=False)).encode("utf-8")
+            st.download_button(
+                label="📥 결과 CSV 다운로드",
+                data=csv_data,
+                file_name=f"result_{target}.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
 
             # ── 시각화 (탭 없이 세로 배치) ────────────────────────
             st.divider()
