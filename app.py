@@ -32,6 +32,28 @@ def assign_label(p):
     elif p >= 0.50: return '유통기한 조정 대상'
     else:           return '폐기 검토 대상'
 
+# ── PDF 출력 버튼 스타일 주입 ──────────────────────────────
+st.markdown("""
+<style>
+@media print {
+    /* 사이드바·헤더·버튼 숨김 */
+    [data-testid="stSidebar"],
+    [data-testid="stToolbar"],
+    [data-testid="stHeader"],
+    .stButton, .stDownloadButton,
+    [data-testid="stFileUploader"],
+    [data-testid="stExpander"] { display: none !important; }
+
+    /* 여백·배경 초기화 */
+    .main .block-container { padding: 0 !important; max-width: 100% !important; }
+    body { background: white !important; }
+
+    /* 차트 페이지 잘림 방지 */
+    .stPlotlyChart { page-break-inside: avoid; }
+}
+</style>
+""", unsafe_allow_html=True)
+
 # ── Header ────────────────────────────────────────────────
 st.image("assets/logo_v1.png", width=200)
 st.title("바이오공정 생균 예측 시스템")
@@ -117,11 +139,11 @@ if st.button("🚀 예측 실행", type="primary", use_container_width=True):
         predicted = result[~result['excluded']].copy()
         excluded  = result[result['excluded']]
 
-        # 요약 메트릭
+        # ── 요약 메트릭 ───────────────────────────────────────
         st.subheader("📊 예측 결과")
         c1, c2, c3 = st.columns(3)
-        c1.metric("전체 샘플",    f"{len(result)}개")
-        c2.metric("예측 완료",    f"{len(predicted)}개")
+        c1.metric("전체 샘플",     f"{len(result)}개")
+        c2.metric("예측 완료",     f"{len(predicted)}개")
         c3.metric("제외됨 (결측)", f"{len(excluded)}개")
 
         if not predicted.empty:
@@ -136,137 +158,110 @@ if st.button("🚀 예측 실행", type="primary", use_container_width=True):
                 hide_index=True,
             )
 
-            # 다운로드
-            csv_data = ("\ufeff" + display.to_csv(index=False)).encode("utf-8")
-            st.download_button(
-                label="📥 결과 CSV 다운로드",
-                data=csv_data,
-                file_name=f"result_{target}.csv",
-                mime="text/csv",
-            )
+            # 다운로드 + PDF 출력 버튼
+            dl_col, pdf_col = st.columns([3, 1])
+            with dl_col:
+                csv_data = ("\ufeff" + display.to_csv(index=False)).encode("utf-8")
+                st.download_button(
+                    label="📥 결과 CSV 다운로드",
+                    data=csv_data,
+                    file_name=f"result_{target}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+            with pdf_col:
+                # 브라우저 인쇄 다이얼로그 호출 → PDF로 저장
+                st.markdown(
+                    """<button onclick="window.print()"
+                        style="width:100%; padding:0.45rem 1rem; border-radius:6px;
+                               border:1px solid #ccc; background:#f8f8f8;
+                               font-size:0.9rem; cursor:pointer;">
+                        🖨️ PDF 출력
+                    </button>""",
+                    unsafe_allow_html=True,
+                )
 
-            # ── 시각화 ────────────────────────────────────────────
+            # ── 시각화 (탭 없이 세로 배치) ────────────────────────
             st.divider()
             st.subheader("📈 결과 시각화")
 
-            tab1, tab2 = st.tabs(["확률 분포", "Label 비율"])       # , tab3 |, "샘플별 확률"
+            # 1) 확률 분포 히스토그램 ──────────────────────────────
+            st.markdown("##### 예측 확률 분포 히스토그램")
+            fig_hist = px.histogram(
+                display,
+                x="Probability",
+                color="Label",
+                nbins=20,
+                opacity=0.85,
+                color_discrete_map=LABEL_COLORS,
+                category_orders={"Label": LABEL_ORDER},
+                labels={"Probability": "예측 확률", "count": "샘플 수"},
+            )
+            for cutoff, dash, color, label in CUTOFF_LINES:
+                fig_hist.add_vline(
+                    x=cutoff, line_dash=dash, line_color=color, line_width=2,
+                    annotation_text=label,
+                    annotation_position="top right",
+                    annotation_font_size=11,
+                )
+            fig_hist.update_layout(
+                bargap=0.05,
+                xaxis=dict(range=[0, 1], dtick=0.1, title="예측 확률"),
+                yaxis_title="샘플 수",
+                legend_title_text="Label",
+                height=420,
+            )
+            st.plotly_chart(fig_hist, use_container_width=True)
 
-            # Tab 1 ─ 확률 분포 히스토그램 ────────────────────────
-            with tab1:
-                st.markdown("##### 예측 확률 분포 히스토그램")
-                fig = px.histogram(
-                    display,
-                    x="Probability",
+            # 2) Label별 파이 + 바 차트 ────────────────────────────
+            st.markdown("##### Label별 샘플 분포")
+            label_counts = (
+                display['Label']
+                .value_counts()
+                .reindex(LABEL_ORDER, fill_value=0)
+                .reset_index()
+            )
+            label_counts.columns = ['Label', 'Count']
+            label_counts['비율(%)'] = (
+                label_counts['Count'] / label_counts['Count'].sum() * 100
+            ).round(1)
+
+            pie_col, bar_col = st.columns(2)
+
+            with pie_col:
+                fig_pie = px.pie(
+                    label_counts,
+                    names="Label", values="Count",
                     color="Label",
-                    nbins=20,
-                    opacity=0.85,
+                    color_discrete_map=LABEL_COLORS,
+                    hole=0.4,
+                )
+                fig_pie.update_traces(
+                    textinfo="label+percent",
+                    pull=[0.03] * len(LABEL_ORDER),
+                )
+                fig_pie.update_layout(showlegend=False, height=360)
+                st.plotly_chart(fig_pie, use_container_width=True)
+
+            with bar_col:
+                fig_bar = px.bar(
+                    label_counts,
+                    x="Label", y="Count",
+                    color="Label", text="비율(%)",
                     color_discrete_map=LABEL_COLORS,
                     category_orders={"Label": LABEL_ORDER},
-                    labels={"Probability": "예측 확률", "count": "샘플 수"},
+                    labels={"Count": "샘플 수", "Label": ""},
                 )
-                for cutoff, dash, color, label in CUTOFF_LINES:
-                    fig.add_vline(
-                        x=cutoff, line_dash=dash, line_color=color, line_width=2,
-                        annotation_text=label,
-                        annotation_position="top right",
-                        annotation_font_size=11,
-                    )
-                fig.update_layout(
-                    bargap=0.05,
-                    xaxis=dict(range=[0, 1], dtick=0.1, title="예측 확률"),
+                fig_bar.update_traces(
+                    texttemplate="%{text}%",
+                    textposition="outside",
+                )
+                fig_bar.update_layout(
+                    showlegend=False,
                     yaxis_title="샘플 수",
-                    legend_title_text="Label",
-                    height=420,
+                    height=360,
                 )
-                st.plotly_chart(fig, use_container_width=True)
-
-            # Tab 2 ─ Label별 파이 + 바 차트 ──────────────────────
-            with tab2:
-                st.markdown("##### Label별 샘플 분포")
-
-                label_counts = (
-                    display['Label']
-                    .value_counts()
-                    .reindex(LABEL_ORDER, fill_value=0)
-                    .reset_index()
-                )
-                label_counts.columns = ['Label', 'Count']
-                label_counts['비율(%)'] = (
-                    label_counts['Count'] / label_counts['Count'].sum() * 100
-                ).round(1)
-
-                pie_col, bar_col = st.columns(2)
-
-                with pie_col:
-                    fig_pie = px.pie(
-                        label_counts,
-                        names="Label", values="Count",
-                        color="Label",
-                        color_discrete_map=LABEL_COLORS,
-                        hole=0.4,
-                    )
-                    fig_pie.update_traces(
-                        textinfo="label+percent",
-                        pull=[0.03] * len(LABEL_ORDER),
-                    )
-                    fig_pie.update_layout(showlegend=False, height=360)
-                    st.plotly_chart(fig_pie, use_container_width=True)
-
-                with bar_col:
-                    fig_bar = px.bar(
-                        label_counts,
-                        x="Label", y="Count",
-                        color="Label", text="비율(%)",
-                        color_discrete_map=LABEL_COLORS,
-                        category_orders={"Label": LABEL_ORDER},
-                        labels={"Count": "샘플 수", "Label": ""},
-                    )
-                    fig_bar.update_traces(
-                        texttemplate="%{text}%",
-                        textposition="outside",
-                    )
-                    fig_bar.update_layout(
-                        showlegend=False,
-                        yaxis_title="샘플 수",
-                        height=360,
-                    )
-                    st.plotly_chart(fig_bar, use_container_width=True)
-
-            # # Tab 3 ─ 샘플별 확률 막대 그래프 ─────────────────────
-            # with tab3:
-            #     st.markdown("##### 샘플별 예측 확률")
-            #
-            #     max_n = min(len(display), 100)
-            #     n_show = st.slider(
-            #         "표시할 샘플 수", min_value=5, max_value=max_n,
-            #         value=min(30, max_n), step=5,
-            #     )
-            #
-            #     fig_s = px.bar(
-            #         display.head(n_show),
-            #         x="ID", y="Probability",
-            #         color="Label",
-            #         color_discrete_map=LABEL_COLORS,
-            #         category_orders={"Label": LABEL_ORDER},
-            #         text="Probability",
-            #         labels={"Probability": "예측 확률", "ID": "샘플 ID"},
-            #     )
-            #     fig_s.update_traces(
-            #         texttemplate="%{text:.2f}",
-            #         textposition="outside",
-            #     )
-            #     for cutoff, dash, color, _ in CUTOFF_LINES:
-            #         fig_s.add_hline(
-            #             y=cutoff, line_dash=dash,
-            #             line_color=color, line_width=1.8,
-            #         )
-            #     fig_s.update_layout(
-            #         xaxis_tickangle=-40,
-            #         yaxis=dict(range=[0, 1.12], title="예측 확률"),
-            #         legend_title_text="Label",
-            #         height=460,
-            #     )
-            #     st.plotly_chart(fig_s, use_container_width=True)
+                st.plotly_chart(fig_bar, use_container_width=True)
 
         # 제외 샘플
         if not excluded.empty:
