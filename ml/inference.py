@@ -13,7 +13,7 @@ AVAILABLE_TARGETs = {
 
 CUTOFFs = {
     "VCC_reduction_1w": 901.4682080924855,
-    "VCC_1w": 6000,
+    "VCC_1w": 4500,
 }
 
 FeatureTagMap = {
